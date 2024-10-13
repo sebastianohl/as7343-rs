@@ -1,5 +1,4 @@
 use core::result::Result::{self, Err, Ok};
-use embedded_hal::i2c::I2c;
 use esp_idf_hal::delay::FreeRtos;
 
 use log::debug;
