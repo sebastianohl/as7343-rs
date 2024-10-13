@@ -1,8 +1,6 @@
 use core::result::Result::{self, Err, Ok};
+use embedded_hal::i2c::I2c;
 use esp_idf_hal::delay::FreeRtos;
-use esp_idf_hal::delay::BLOCK;
-use esp_idf_hal::i2c::I2cDriver;
-use esp_idf_hal::sys::EspError;
 
 use log::debug;
 
@@ -200,22 +198,25 @@ pub const AS7343_CHANNEL_745_F8: usize = 15;
 pub const AS7343_CHANNEL_CLEAR: usize = 16;
 pub const AS7343_CHANNEL_FD: usize = 17;
 
-pub struct As7343<'a> {
-    pub i2c: I2cDriver<'a>,
+pub struct As7343<I2C> {
+    pub i2c: I2C,
     pub addr: u8,
 }
 
 #[allow(dead_code)]
-impl<'a> As7343<'a> {
-    pub fn new(i2c: I2cDriver<'a>, addr: u8) -> Self {
+impl<I2C> As7343<I2C>
+where
+    I2C: embedded_hal::i2c::I2c,
+{
+    pub fn new(i2c: I2C, addr: u8) -> Self {
         As7343 { i2c, addr }
     }
 
-    pub fn destroy(self) -> I2cDriver<'a> {
+    pub fn destroy(self) -> I2C {
         self.i2c
     }
 
-    pub fn begin(&mut self) -> Result<bool, EspError> {
+    pub fn begin(&mut self) -> Result<bool, I2C::Error> {
         match self.get_chip_id() {
             Err(e) => return Err(e),
             Ok(id) => {
@@ -235,7 +236,7 @@ impl<'a> As7343<'a> {
         };
     }
 
-    fn set_bank(&mut self, low: bool) -> Result<(), EspError> {
+    fn set_bank(&mut self, low: bool) -> Result<(), I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_CFG0, &mut reg)?;
         return self.i2c_write_cmd(
@@ -244,7 +245,7 @@ impl<'a> As7343<'a> {
         );
     }
 
-    pub fn get_chip_id(&mut self) -> Result<u8, EspError> {
+    pub fn get_chip_id(&mut self) -> Result<u8, I2C::Error> {
         self.set_bank(true)?;
         let mut data = [0u8; 1];
         self.i2c_write_read_cmd(AS7343_REG_ID, &mut data)?;
@@ -252,7 +253,7 @@ impl<'a> As7343<'a> {
         Ok(data[0])
     }
 
-    pub fn power_enable(&mut self, power: bool) -> Result<(), EspError> {
+    pub fn power_enable(&mut self, power: bool) -> Result<(), I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_ENABLE, &mut reg)?;
         return self.i2c_write_cmd(
@@ -261,18 +262,18 @@ impl<'a> As7343<'a> {
         );
     }
 
-    pub fn set_auto_smux(&mut self, smux: u8) -> Result<(), EspError> {
+    pub fn set_auto_smux(&mut self, smux: u8) -> Result<(), I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_CFG20, &mut reg)?;
         return self.i2c_write_cmd(AS7343_REG_CFG20, (reg[0] & 0x8f) | ((smux & 0x3) << 5));
     }
 
     //  Total integration time will be `(ATIME + 1) * (ASTEP + 1) * 2.78µS`
-    pub fn set_atime(&mut self, atime: u8) -> Result<(), EspError> {
+    pub fn set_atime(&mut self, atime: u8) -> Result<(), I2C::Error> {
         return self.i2c_write_cmd(AS7343_REG_ATIME, atime);
     }
     //  Total integration time will be `(ATIME + 1) * (ASTEP + 1) * 2.78µS`
-    pub fn set_astep(&mut self, step: u16 /* in 2.78uS */) -> Result<(), EspError> {
+    pub fn set_astep(&mut self, step: u16 /* in 2.78uS */) -> Result<(), I2C::Error> {
         self.i2c_write_cmd(AS7343_REG_ASTEP_LOW, (step & 0xff).try_into().unwrap())?;
         return self.i2c_write_cmd(
             AS7343_REG_ASTEP_HIGH,
@@ -280,13 +281,13 @@ impl<'a> As7343<'a> {
         );
     }
     //  Total integration time will be `(ATIME + 1) * (ASTEP + 1) * 2.78µS`
-    pub fn get_atime(&mut self) -> Result<u8, EspError> {
+    pub fn get_atime(&mut self) -> Result<u8, I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_ATIME, &mut reg)?;
         return Ok(reg[0]);
     }
     //  Total integration time will be `(ATIME + 1) * (ASTEP + 1) * 2.78µS`
-    pub fn get_astep(&mut self) -> Result<u16, EspError> {
+    pub fn get_astep(&mut self) -> Result<u16, I2C::Error> {
         let mut reg = [0u8; 1];
 
         self.i2c_read_bytes(AS7343_REG_ASTEP_LOW, &mut reg)?;
@@ -294,12 +295,12 @@ impl<'a> As7343<'a> {
         self.i2c_read_bytes(AS7343_REG_ASTEP_HIGH, &mut reg)?;
         return Ok(((reg[0] as u16) << 8) & astep_low);
     }
-    pub fn set_gain(&mut self, gain: u8) -> Result<(), EspError> {
+    pub fn set_gain(&mut self, gain: u8) -> Result<(), I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_CFG1, &mut reg)?;
         return self.i2c_write_cmd(AS7343_REG_CFG1, (reg[0] & 0xf8) | (gain & 0x7));
     }
-    pub fn get_gain(&mut self) -> Result<u8, EspError> {
+    pub fn get_gain(&mut self) -> Result<u8, I2C::Error> {
         let mut reg = [0u8; 1];
         match self.i2c_read_bytes(AS7343_REG_CFG1, &mut reg) {
             Err(e) => return Err(e),
@@ -308,7 +309,7 @@ impl<'a> As7343<'a> {
             }
         };
     }
-    pub fn enable_led(&mut self, enabled: bool, strength: u8) -> Result<(), EspError> {
+    pub fn enable_led(&mut self, enabled: bool, strength: u8) -> Result<(), I2C::Error> {
         self.set_bank(true)?;
         self.i2c_write_cmd(
             AS7343_REG_LED,
@@ -318,18 +319,18 @@ impl<'a> As7343<'a> {
         Ok(())
     }
 
-    pub fn clear_digital_saturation_status(&mut self) -> Result<(), EspError> {
+    pub fn clear_digital_saturation_status(&mut self) -> Result<(), I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_STATUS_2, &mut reg)?;
         return self.i2c_write_cmd(AS7343_REG_STATUS_2, reg[0] & 0xef);
     }
-    pub fn clear_analog_saturation_status(&mut self) -> Result<(), EspError> {
+    pub fn clear_analog_saturation_status(&mut self) -> Result<(), I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_STATUS_2, &mut reg)?;
         return self.i2c_write_cmd(AS7343_REG_STATUS_2, reg[0] & 0xf7);
     }
 
-    pub fn enable_spectral_measurement(&mut self, enabled: bool) -> Result<(), EspError> {
+    pub fn enable_spectral_measurement(&mut self, enabled: bool) -> Result<(), I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_ENABLE, &mut reg)?;
         return self.i2c_write_cmd(
@@ -338,25 +339,25 @@ impl<'a> As7343<'a> {
         );
     }
 
-    pub fn is_data_ready(&mut self) -> Result<bool, EspError> {
+    pub fn is_data_ready(&mut self) -> Result<bool, I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_STATUS_2, &mut reg)?;
         Ok(reg[0] & 0x40 > 0)
     }
 
-    pub fn get_digital_saturation(&mut self) -> Result<bool, EspError> {
+    pub fn get_digital_saturation(&mut self) -> Result<bool, I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_STATUS_2, &mut reg)?;
         Ok(reg[0] & 0x10 > 0)
     }
 
-    pub fn get_analog_saturation(&mut self) -> Result<bool, EspError> {
+    pub fn get_analog_saturation(&mut self) -> Result<bool, I2C::Error> {
         let mut reg = [0u8; 1];
         self.i2c_read_bytes(AS7343_REG_STATUS_2, &mut reg)?;
         Ok(reg[0] & 0x08 > 0)
     }
 
-    pub fn wait_for_data(&mut self, wait_time: u32) -> Result<bool, EspError> {
+    pub fn wait_for_data(&mut self, wait_time: u32) -> Result<bool, I2C::Error> {
         if wait_time == 0 {
             loop {
                 match self.is_data_ready() {
@@ -395,7 +396,7 @@ impl<'a> As7343<'a> {
         }
     }
 
-    fn read_channel(&mut self, channel: u8) -> Result<u16, EspError> {
+    fn read_channel(&mut self, channel: u8) -> Result<u16, I2C::Error> {
         let mut reg = [0u8; 1];
 
         self.i2c_read_bytes(AS7343_REG_CH0_DATA_L + (2 * channel), &mut reg)?;
@@ -404,7 +405,7 @@ impl<'a> As7343<'a> {
         return Ok(((reg[0] as u16) << 8) & low_byte);
     }
 
-    pub fn read_all_channels(&mut self) -> Result<[u16; 18], EspError> {
+    pub fn read_all_channels(&mut self) -> Result<[u16; 18], I2C::Error> {
         self.enable_spectral_measurement(true)?;
         self.wait_for_data(0)?; // I'll wait for you for all time
         let mut reg = [0u8; 36];
@@ -431,7 +432,7 @@ impl<'a> As7343<'a> {
         ]);
     }
 
-    fn raw_to_basic_counts(&mut self, raw: u16) -> Result<f32, EspError> {
+    fn raw_to_basic_counts(&mut self, raw: u16) -> Result<f32, I2C::Error> {
         let gain_val: f32 = match self.get_gain()? {
             AS7343_GAIN_0_5X => 0.5,
             g => (1 << (g - 1)) as f32,
@@ -458,7 +459,7 @@ impl<'a> As7343<'a> {
         calibration_time_ms: f32,
         calibration_gain: u8,
         calibration_ee: f32,
-    ) -> Result<f32, EspError> {
+    ) -> Result<f32, I2C::Error> {
         let calibration_bc = self.calibration_to_basic_counts(
             calibration_count,
             calibration_time_ms,
@@ -468,8 +469,8 @@ impl<'a> As7343<'a> {
         return Ok(reading_bc / calibration_bc * calibration_ee);
     }
 
-    fn i2c_write_read_cmd(&mut self, addr: u8, data: &mut [u8]) -> Result<(), EspError> {
-        match self.i2c.write_read(self.addr, &[addr], data, BLOCK) {
+    fn i2c_write_read_cmd(&mut self, addr: u8, data: &mut [u8]) -> Result<(), I2C::Error> {
+        match self.i2c.write_read(self.addr, &[addr], data) {
             Ok(_) => debug!(
                 "I2C_WRITE_READ - ADDR: 0x{:02X} - READ: 0x{:02X}",
                 addr, data[0]
@@ -479,16 +480,16 @@ impl<'a> As7343<'a> {
         Ok(())
     }
 
-    fn i2c_read_bytes(&mut self, addr: u8, data: &mut [u8]) -> Result<(), EspError> {
-        match self.i2c.write_read(self.addr, &[addr], data, BLOCK) {
+    fn i2c_read_bytes(&mut self, addr: u8, data: &mut [u8]) -> Result<(), I2C::Error> {
+        match self.i2c.write_read(self.addr, &[addr], data) {
             Ok(_) => debug!("I2C_READ_BYTES - ADDR: 0x{:02X} - DATA {:?}", addr, data),
             Err(e) => return Err(e),
         }
         Ok(())
     }
 
-    fn i2c_write_cmd(&mut self, addr: u8, cmd: u8) -> Result<(), EspError> {
-        match self.i2c.write(self.addr, &[addr, cmd], BLOCK) {
+    fn i2c_write_cmd(&mut self, addr: u8, cmd: u8) -> Result<(), I2C::Error> {
+        match self.i2c.write(self.addr, &[addr, cmd]) {
             Ok(_) => debug!("I2C_WRITE - ADDR: 0x{:02X} - DATa: 0x{:02X}", addr, cmd),
             Err(e) => return Err(e),
         }
